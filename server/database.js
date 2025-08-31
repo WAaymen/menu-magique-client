@@ -60,6 +60,8 @@ async function initializeDatabase() {
     await pool.query(createTableQuery);
     console.log('✅ Database tables initialized successfully');
 
+
+
     // Insert sample data if table is empty
     const checkDataQuery = 'SELECT COUNT(*) FROM menu_items';
     const result = await pool.query(checkDataQuery);
@@ -75,39 +77,41 @@ async function initializeDatabase() {
   }
 }
 
+
+
 // Insert sample menu items
 async function insertSampleData() {
   const sampleItems = [
     {
-      name: 'Couscous Royal',
-      description: 'Couscous traditionnel avec légumes et viandes variées, servi avec bouillon parfumé',
-      price: 18.50,
+      name: 'Steak Grillé',
+      description: 'Filet de bœuf grillé aux légumes de saison, servi avec sauce au poivre',
+      price: 28.50,
       category: 'Plats Principaux',
-      image_url: 'https://example.com/couscous.jpg',
+      image_url: null, // Will use fallback image from frontend
       available: true
     },
     {
       name: 'Salade César',
       description: 'Laitue romaine, parmesan, croûtons et sauce césar maison',
-      price: 12.00,
+      price: 14.90,
       category: 'Salades',
-      image_url: 'https://example.com/salade-cesar.jpg',
+      image_url: null, // Will use fallback image from frontend
       available: true
     },
     {
-      name: 'Tiramisu',
-      description: 'Dessert italien classique avec mascarpone, café et cacao',
+      name: 'Soupe à l\'Oignon',
+      description: 'Soupe traditionnelle française au fromage fondu et croûtons dorés',
+      price: 9.80,
+      category: 'Entrées',
+      image_url: null, // Will use fallback image from frontend
+      available: true
+    },
+    {
+      name: 'Dessert Chocolat',
+      description: 'Fondant au chocolat avec fruits rouges et crème anglaise',
       price: 8.50,
       category: 'Desserts',
-      image_url: 'https://example.com/tiramisu.jpg',
-      available: true
-    },
-    {
-      name: 'Limonade Maison',
-      description: 'Limonade fraîche préparée avec des citrons bio et menthe',
-      price: 4.50,
-      category: 'Boissons',
-      image_url: 'https://example.com/limonade.jpg',
+      image_url: null, // Will use fallback image from frontend
       available: true
     }
   ];

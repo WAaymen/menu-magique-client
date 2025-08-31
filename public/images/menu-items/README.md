@@ -18,3 +18,4 @@ This folder contains all menu item images uploaded through the system.
 3. URL is stored in database as: `/images/menu-items/filename.ext`
 4. Image can be accessed via: `http://localhost:8080/images/menu-items/filename.ext`
 
+

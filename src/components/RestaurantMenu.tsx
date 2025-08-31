@@ -5,10 +5,12 @@ import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Plus, Minus, ShoppingCart, Receipt, MessageSquare, Eye, Clock, CheckCircle, AlertCircle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { useSocket } from "@/hooks/useSocket";
 import DishModal from "./DishModal";
 import BillPage from "./BillPage";
 import ComplaintPage from "./ComplaintPage";
 import CartPage from "./CartPage";
+import OrderStatusNotification from "./OrderStatusNotification";
 import steakImg from "@/assets/steak.jpg";
 import saladImg from "@/assets/salad.jpg";
 import dessertImg from "@/assets/dessert.jpg";
@@ -28,6 +30,8 @@ export interface MenuItem {
 export interface CartItem extends MenuItem {
   quantity: number;
   notes?: string;
+  tableNumber?: string;
+  orderId?: string; // Add orderId field for confirmed orders
 }
 
 type ViewType = "menu" | "bill" | "complaint" | "cart";
@@ -89,8 +93,119 @@ const RestaurantMenu = () => {
   const [successItem, setSuccessItem] = useState<{name: string, quantity: number} | null>(null);
 
   const { toast } = useToast();
+  const { socket, isConnected, sendOrder, joinTable, orderStatusUpdates } = useSocket();
 
   const tableNumber = 12;
+
+  // Listen for order status updates from Socket.IO
+  useEffect(() => {
+    console.log('🔄 RestaurantMenu: orderStatusUpdates changed, length:', orderStatusUpdates.length);
+    console.log('🔄 RestaurantMenu: Current orderStatusUpdates:', orderStatusUpdates);
+    console.log('🔄 RestaurantMenu: Current orderStatuses:', orderStatuses);
+    
+    if (orderStatusUpdates.length > 0) {
+      const latestUpdate = orderStatusUpdates[0];
+      console.log('🔄 RestaurantMenu: Processing latest update:', latestUpdate);
+      console.log('🔄 RestaurantMenu: Update details:', {
+        orderId: latestUpdate.orderId,
+        tableNumber: latestUpdate.tableNumber,
+        status: latestUpdate.status,
+        timestamp: latestUpdate.timestamp
+      });
+      
+      // Update the order status in our local state
+      const newStatus: "pending" | "preparing" | "ready" = 
+        latestUpdate.status === 'confirmed' ? 'preparing' : 
+        latestUpdate.status === 'preparing' ? 'preparing' :
+        latestUpdate.status === 'ready' ? 'ready' :
+        latestUpdate.status === 'served' ? 'ready' :
+        latestUpdate.status === 'paid' ? 'ready' :
+        latestUpdate.status === 'cancelled' ? 'pending' : 'pending';
+      
+      console.log('🔄 RestaurantMenu: Converting status from', latestUpdate.status, 'to', newStatus);
+      console.log('🔄 RestaurantMenu: Looking for orderId:', latestUpdate.orderId, 'in orderStatuses');
+      
+      // If order is paid, clear all data for new customer
+      if (latestUpdate.status === 'paid') {
+        console.log('💰 Order paid - clearing all data for new customer');
+        
+        // Clear all data to prepare for new customer
+        setOrderStatuses({});
+        setConfirmedOrders([]);
+        setCart([]);
+        
+        // Reset to menu view
+        setCurrentView("menu");
+        
+        // Show success message
+        toast({
+          title: "Paiement effectué !",
+          description: "Merci pour votre visite. L'interface est maintenant prête pour un nouveau client.",
+          variant: "default"
+        });
+        
+        return; // Exit early since we've cleared everything
+      }
+      
+      // If order is cancelled, clear data for that specific order
+      if (latestUpdate.status === 'cancelled') {
+        console.log('❌ Order cancelled - clearing data for cancelled order');
+        
+        // Remove the cancelled order from orderStatuses
+        setOrderStatuses(prev => {
+          const { [latestUpdate.orderId]: removed, ...rest } = prev;
+          console.log('🔄 RestaurantMenu: Removed cancelled order:', latestUpdate.orderId);
+          return rest;
+        });
+        
+        // Remove the cancelled order from confirmedOrders
+        setConfirmedOrders(prev => 
+          prev.filter(item => item.orderId !== latestUpdate.orderId)
+        );
+        
+        // Show cancellation message
+        toast({
+          title: "Commande annulée",
+          description: "La commande a été annulée par le personnel.",
+          variant: "destructive"
+        });
+        
+        return; // Exit early since we've handled the cancellation
+      }
+      
+      // If order is served, show message but DON'T clear data
+      if (latestUpdate.status === 'served') {
+        console.log('🍽️ Order served - showing message but keeping data');
+        
+        // Show served message
+        toast({
+          title: "Commande servie !",
+          description: "Votre commande a été servie. Vous pouvez maintenant la déguster.",
+          variant: "default"
+        });
+        
+        // Update status but keep all data
+        setOrderStatuses(prev => ({
+          ...prev,
+          [latestUpdate.orderId]: 'ready'
+        }));
+        
+        return; // Exit early since we've handled the served status
+      }
+      
+      setOrderStatuses(prev => {
+        const updated = {
+          ...prev,
+          [latestUpdate.orderId]: newStatus
+        };
+        console.log('🔄 RestaurantMenu: Previous orderStatuses:', prev);
+        console.log('🔄 RestaurantMenu: Updated orderStatuses:', updated);
+        return updated;
+      });
+    } else {
+      console.log('🔄 RestaurantMenu: No order status updates to process');
+    }
+  }, [orderStatusUpdates]);
 
   // Load menu items from database
   useEffect(() => {
@@ -101,9 +216,9 @@ const RestaurantMenu = () => {
         
         // Try multiple server URLs
         const serverUrls = [
-          'http://192.168.1.16:3001',
           'http://localhost:3001',
-          'http://127.0.0.1:3001'
+          'http://127.0.0.1:3001',
+          'http://192.168.1.16:3001'
         ];
         
         let workingUrl = null;
@@ -113,6 +228,7 @@ const RestaurantMenu = () => {
         for (const baseUrl of serverUrls) {
           try {
             console.log(`Testing server at: ${baseUrl}/api/health`);
+            
             const healthResponse = await fetch(`${baseUrl}/api/health`, {
               method: 'GET',
               headers: {
@@ -163,15 +279,31 @@ const RestaurantMenu = () => {
           // Transform database data to match our interface
           const transformedItems = items
             .filter(item => item.available !== false) // Filter out unavailable items
-            .map((item: any) => ({
-              id: item.id?.toString() || item.id,
-              name: item.name || 'Sans nom',
-              description: item.description || 'Aucune description',
-              price: typeof item.price === 'number' ? item.price : parseFloat(item.price || '0'),
-              category: item.category || 'Autre',
-              image: item.image_url || item.image || steakImg, // Use fallback image if none provided
-              available: item.available !== false // Default to true if not specified
-            }));
+            .map((item: any) => {
+              console.log('Processing item:', item);
+              console.log('Item image_url:', item.image_url);
+              console.log('Item image:', item.image);
+              
+              // Select appropriate fallback image based on category
+              let fallbackImage = steakImg; // Default fallback
+              if (item.category === 'Salades') {
+                fallbackImage = saladImg;
+              } else if (item.category === 'Entrées') {
+                fallbackImage = soupImg;
+              } else if (item.category === 'Desserts') {
+                fallbackImage = dessertImg;
+              }
+              
+              return {
+                id: item.id?.toString() || item.id,
+                name: item.name || 'Sans nom',
+                description: item.description || 'Aucune description',
+                price: typeof item.price === 'number' ? item.price : parseFloat(item.price || '0'),
+                category: item.category || 'Autre',
+                image: item.image_url || item.image || fallbackImage, // Use category-appropriate fallback image
+                available: item.available !== false // Default to true if not specified
+              };
+            });
 
           console.log('Transformed items:', transformedItems);
           setMenuItems(transformedItems);
@@ -240,8 +372,13 @@ const RestaurantMenu = () => {
 
 
 
-  const submitOrder = () => {
+  const submitOrder = (tableNumber: string) => {
+    console.log('🚀 submitOrder called with tableNumber:', tableNumber);
+    console.log('🚀 Current cart:', cart);
+    console.log('🚀 Current view:', currentView);
+    
     if (cart.length === 0) {
+      console.log('❌ Cart is empty');
       toast({
         title: "Panier vide",
         description: "Veuillez ajouter au moins un plat à votre commande",
@@ -250,11 +387,49 @@ const RestaurantMenu = () => {
       return;
     }
 
-    // Créer un ID unique pour cette commande
-    const orderId = `order_${Date.now()}`;
+    if (!tableNumber.trim()) {
+      console.log('❌ Table number is empty');
+      toast({
+        title: "Numéro de table requis",
+        description: "Veuillez saisir le numéro de votre table",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    // Créer un ID unique pour cette commande - utiliser un format plus simple
+    const orderId = `order_${tableNumber.trim()}_${Date.now()}`;
     
-    // Ajouter les éléments du panier إلى الطلبات المؤكدة avec ID
-    const orderWithId = cart.map(item => ({ ...item, orderId }));
+    // Préparer les données de la commande pour Socket.IO
+    const orderData = {
+      id: orderId,
+      tableNumber: tableNumber.trim(),
+      items: cart.map(item => ({
+        id: item.id,
+        name: item.name,
+        quantity: item.quantity,
+        price: item.price,
+        notes: item.notes
+      })),
+      total: cart.reduce((total, item) => total + (item.price * item.quantity), 0)
+    };
+
+    // Envoyer la commande via Socket.IO si connecté
+    if (isConnected && socket) {
+      console.log('✅ Socket is connected, sending order...');
+      sendOrder(orderData);
+      console.log('📤 Order sent via Socket.IO:', orderData);
+      
+      // Rejoindre la salle de la table pour recevoir les mises à jour
+      console.log('📋 Joining table room:', tableNumber.trim());
+      joinTable(tableNumber.trim());
+    } else {
+      console.warn('⚠️ Socket not connected, order sent locally only');
+      console.log('❌ Socket status:', { isConnected, socket: !!socket });
+    }
+    
+    // Ajouter les éléments du panier إلى الطلبات المؤكدة avec ID et numéro de table
+    const orderWithId = cart.map(item => ({ ...item, orderId, tableNumber: tableNumber.trim() }));
     setConfirmedOrders(prevOrders => [...prevOrders, ...orderWithId]);
     
     // Définir le statut initial pour cette commande
@@ -265,19 +440,26 @@ const RestaurantMenu = () => {
     // Vider le panier après تأكيد الطلب
     setCart([]);
     
-    // Simulate order progression for this specific order
-    setTimeout(() => {
-      setOrderStatuses(prev => ({ ...prev, [orderId]: "preparing" }));
-    }, 3000);
+    // Afficher un message de succès
+    toast({
+      title: "Commande confirmée !",
+      description: `Votre commande a été envoyée pour la table ${tableNumber.trim()}`,
+      variant: "default"
+    });
     
-    setTimeout(() => {
-      setOrderStatuses(prev => ({ ...prev, [orderId]: "ready" }));
-    }, 8000);
+    // Note: Les changements de statut se feront uniquement via Socket.IO
+    // quand le cashier change le statut manuellement
+    
+    console.log('✅ Order submitted successfully!');
+    console.log('✅ Order ID:', orderId);
+    console.log('✅ Table Number:', tableNumber.trim());
+    console.log('✅ Cart cleared, length:', cart.length);
+    console.log('✅ Confirmed orders count:', confirmedOrders.length + orderWithId.length);
   };
 
   // Handle different views
   if (currentView === "bill") {
-    return <BillPage cart={confirmedOrders} onBack={() => setCurrentView("menu")} tableNumber={tableNumber} />;
+    return <BillPage cart={confirmedOrders} onBack={() => setCurrentView("menu")} />;
   }
 
   if (currentView === "complaint") {
@@ -343,10 +525,17 @@ const RestaurantMenu = () => {
           <div className="absolute inset-0 flex items-center justify-between px-6">
             <div>
               <h1 className="text-4xl font-bold text-white mb-2">Menu</h1>
-              <p className="text-restaurant-cream text-lg">Table N° {tableNumber}</p>
+              <p className="text-restaurant-cream text-lg">Sélectionnez votre table lors de la commande</p>
               <p className="text-restaurant-cream text-sm opacity-80">
                 {filteredItems.length} plats disponibles sur {menuItems.length} au total
               </p>
+              {/* Socket.IO Connection Status */}
+              <div className="flex items-center gap-2 mt-2">
+                <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-400' : 'bg-red-400'}`}></div>
+                <span className="text-xs text-restaurant-cream opacity-80">
+                  {isConnected ? 'Connecté au serveur' : 'Déconnecté du serveur'}
+                </span>
+              </div>
             </div>
                         <div className="flex gap-3">
                              <Button 
@@ -529,13 +718,27 @@ const RestaurantMenu = () => {
                     src={item.image} 
                     alt={item.name}
                     className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                    onError={(e) => {
+                      console.log('Image failed to load for item:', item.name, 'Image URL:', item.image);
+                      const target = e.target as HTMLImageElement;
+                      // Use category-appropriate fallback image
+                      if (item.category === 'Salades') {
+                        target.src = saladImg;
+                      } else if (item.category === 'Entrées') {
+                        target.src = soupImg;
+                      } else if (item.category === 'Desserts') {
+                        target.src = dessertImg;
+                      } else {
+                        target.src = steakImg;
+                      }
+                    }}
                   />
                 </div>
                 <CardHeader className="pb-3">
                   <div className="flex justify-between items-start">
                     <CardTitle className="text-lg">{item.name}</CardTitle>
                     <Badge variant="secondary" className="bg-restaurant-gold/20 text-restaurant-dark">
-                      {item.price.toFixed(2)} €
+                      {item.price.toFixed(2)} DZD
                     </Badge>
                   </div>
                   <CardDescription className="text-sm">{item.description}</CardDescription>
@@ -591,6 +794,9 @@ const RestaurantMenu = () => {
            </div>
          </div>
        )}
+
+       {/* Order Status Notifications */}
+       <OrderStatusNotification />
      </>
    );
  };

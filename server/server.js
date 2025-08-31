@@ -4,6 +4,8 @@ const helmet = require('helmet');
 const morgan = require('morgan');
 const path = require('path');
 const fs = require('fs');
+const { createServer } = require('http');
+const { Server } = require('socket.io');
 
 // Import database and routes
 const { initializeDatabase } = require('./database');
@@ -23,16 +25,37 @@ configContent.split('\n').forEach(line => {
 });
 
 const app = express();
+const server = createServer(app);
+// Socket.IO setup
+const io = new Server(server, {
+  cors: {
+    origin: true, // Allow all origins for testing
+    credentials: true,
+    methods: ['GET', 'POST']
+  },
+  transports: ['websocket', 'polling']
+});
+
 const PORT = config.PORT || 3001;
 
 // Middleware
 app.use(helmet()); // Security headers
+// Handle preflight requests
+app.options('*', cors());
+
+// CORS configuration
 app.use(cors({
-  origin: ['http://192.168.1.16:8080', 'http://192.168.1.16:8082', 'http://localhost:8080', 'http://localhost:8082', 'http://127.0.0.1:8080', 'http://127.0.0.1:8082'],
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+    
+    // Allow all origins for testing
+    callback(null, true);
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
-})); // Enable CORS with specific origin
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
+}));
 app.use(morgan('combined')); // Logging
 
 
@@ -63,6 +86,78 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+// Socket.IO connection handling
+io.on('connection', (socket) => {
+  console.log('🔌 Client connected:', socket.id);
+  
+  // Join table room
+  socket.on('join-table', (tableNumber) => {
+    socket.join(`table-${tableNumber}`);
+    console.log(`📋 Client ${socket.id} joined table ${tableNumber}`);
+  });
+  
+  // Handle new order
+  socket.on('new-order', (orderData) => {
+    console.log('🆕 Server: New order received:', orderData);
+    console.log('🆕 Server: Order details:', {
+      id: orderData.id,
+      tableNumber: orderData.tableNumber,
+      itemsCount: orderData.items.length,
+      total: orderData.total
+    });
+    
+    // Use the id sent by the client as orderId
+    const orderNotification = {
+      ...orderData,
+      timestamp: new Date().toISOString(),
+      orderId: orderData.id // Use the client's id as orderId
+    };
+    
+    console.log('🆕 Server: Sending order notification with orderId:', orderNotification.orderId);
+    
+    // Emit to all clients (cashier interface)
+    io.emit('order-notification', orderNotification);
+    
+    // Also emit to specific table room if table number is provided
+    if (orderData.tableNumber) {
+      io.to(`table-${orderData.tableNumber}`).emit('table-order-update', {
+        ...orderData,
+        timestamp: new Date().toISOString()
+      });
+    }
+    
+    console.log('🆕 Server: Order notification sent successfully');
+  });
+  
+  // Handle order status updates
+  socket.on('order-status-update', (updateData) => {
+    console.log('📊 Server: Order status update received:', updateData);
+    console.log('📊 Server: Update details:', {
+      orderId: updateData.orderId,
+      tableNumber: updateData.tableNumber,
+      status: updateData.status,
+      timestamp: updateData.timestamp
+    });
+    
+    // Emit to all clients
+    console.log('📊 Server: Emitting order-status-changed to all clients');
+    io.emit('order-status-changed', updateData);
+    
+    // Emit to specific table if provided
+    if (updateData.tableNumber) {
+      console.log(`📊 Server: Emitting table-status-update to table ${updateData.tableNumber}`);
+      io.to(`table-${updateData.tableNumber}`).emit('table-status-update', updateData);
+    }
+    
+    console.log('📊 Server: Order status update processed successfully');
+  });
+  
+  // Handle disconnection
+  socket.on('disconnect', () => {
+    console.log('🔌 Client disconnected:', socket.id);
+  });
+});
+
 // API Routes
 app.use('/api/menu-items', menuItemsRoutes);
 app.use('/api/images', imagesRoutes);
@@ -77,9 +172,12 @@ app.get('/', (req, res) => {
       health: '/api/health',
       menuItems: '/api/menu-items',
       documentation: 'Available endpoints for menu management'
-    }
+    },
+    timestamp: new Date().toISOString()
   });
 });
+
+
 
 // 404 handler
 app.use('*', (req, res) => {
@@ -109,14 +207,16 @@ async function startServer() {
     await initializeDatabase();
     
     // Start server
-    app.listen(PORT, '0.0.0.0', () => {
+    server.listen(PORT, '0.0.0.0', () => {
       console.log('🚀 Menu Magique Server started successfully!');
       console.log(`📍 Server running on port ${PORT}`);
       console.log(`🌐 API available at http://0.0.0.0:${PORT}`);
       console.log(`🔍 Health check: http://0.0.0.0:${PORT}/api/health`);
       console.log(`📊 Menu items API: http://0.0.0.0:${PORT}/api/menu-items`);
+      console.log(`🔌 Socket.IO enabled for real-time communication`);
       console.log(`🌍 Accessible from any IP address on port ${PORT}`);
-      console.log('✅ Ready to handle requests!');
+      console.log(`🔗 Ngrok URL: https://119fefdb55e0.ngrok-free.app`);
+      console.log('✅ Ready to handle requests and Socket.IO connections!');
     });
     
   } catch (error) {

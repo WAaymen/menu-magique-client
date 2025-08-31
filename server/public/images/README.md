@@ -17,3 +17,4 @@ This folder contains all uploaded images.
 3. URL is stored in database as: `/images/filename.ext`
 4. Image can be accessed via: `http://localhost:8080/images/filename.ext`
 
+

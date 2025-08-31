@@ -6,13 +6,16 @@ import { CartItem } from "./RestaurantMenu";
 interface BillPageProps {
   cart: CartItem[];
   onBack: () => void;
-  tableNumber: number;
 }
 
-const BillPage = ({ cart, onBack, tableNumber }: BillPageProps) => {
+const BillPage = ({ cart, onBack }: BillPageProps) => {
   const subtotal = cart.reduce((total, item) => total + (item.price * item.quantity), 0);
   const tva = subtotal * 0.1; // 10% TVA
   const total = subtotal + tva;
+  
+  // Get table number from the first item (all items should have the same table number)
+  const tableNumber = cart[0]?.tableNumber || "N/A";
+  
   const orderDate = new Date().toLocaleDateString('fr-FR', {
     day: '2-digit',
     month: '2-digit',
@@ -77,7 +80,7 @@ const BillPage = ({ cart, onBack, tableNumber }: BillPageProps) => {
                     </p>
                   </div>
                   <p className="font-medium">
-                    {(item.price * item.quantity).toFixed(2)} €
+                    {(item.price * item.quantity).toFixed(2)} DZD
                   </p>
                 </div>
               ))}
@@ -87,15 +90,15 @@ const BillPage = ({ cart, onBack, tableNumber }: BillPageProps) => {
             <div className="space-y-2 pt-4 border-t">
               <div className="flex justify-between">
                 <span>Sous-total:</span>
-                <span>{subtotal.toFixed(2)} €</span>
+                <span>{subtotal.toFixed(2)} DZD</span>
               </div>
               <div className="flex justify-between text-sm text-muted-foreground">
                 <span>TVA (10%):</span>
-                <span>{tva.toFixed(2)} €</span>
+                <span>{tva.toFixed(2)} DZD</span>
               </div>
               <div className="flex justify-between text-lg font-bold text-primary pt-2 border-t">
                 <span>Total:</span>
-                <span>{total.toFixed(2)} €</span>
+                <span>{total.toFixed(2)} DZD</span>
               </div>
             </div>
 

@@ -4,6 +4,10 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Plus, Minus, ShoppingCart } from "lucide-react";
 import { MenuItem } from "./RestaurantMenu";
+import steakImg from "@/assets/steak.jpg";
+import saladImg from "@/assets/salad.jpg";
+import soupImg from "@/assets/soup.jpg";
+import dessertImg from "@/assets/dessert.jpg";
 
 interface DishModalProps {
   dish: MenuItem | null;
@@ -38,16 +42,36 @@ const DishModal = ({ dish, isOpen, onClose, onAddToCart }: DishModalProps) => {
         
         <div className="space-y-4 pb-4">
           {/* Image */}
-          <div className="aspect-video overflow-hidden rounded-lg">
-            <img 
-              src={dish.image_url || '/placeholder.svg'} 
-              alt={dish.name}
-              className="w-full h-full object-cover"
-              onError={(e) => {
-                const target = e.target as HTMLImageElement;
-                target.src = '/placeholder.svg';
-              }}
-            />
+          <div className="aspect-video overflow-hidden rounded-lg bg-gray-100">
+            {dish.image ? (
+              <img 
+                src={dish.image} 
+                alt={dish.name}
+                className="w-full h-full object-cover"
+                onError={(e) => {
+                  console.log('Image failed to load in DishModal for:', dish.name, 'Image:', dish.image);
+                  const target = e.target as HTMLImageElement;
+                  
+                  // Use category-appropriate fallback image
+                  if (dish.category === 'Salades') {
+                    target.src = saladImg;
+                  } else if (dish.category === 'Entrées') {
+                    target.src = soupImg;
+                  } else if (dish.category === 'Desserts') {
+                    target.src = dessertImg;
+                  } else {
+                    target.src = steakImg;
+                  }
+                }}
+              />
+            ) : (
+              <div className="w-full h-full flex items-center justify-center text-gray-400">
+                <div className="text-center">
+                  <div className="text-4xl mb-2">🍽️</div>
+                  <p className="text-sm">Image non disponible</p>
+                </div>
+              </div>
+            )}
           </div>
           
           {/* Description and Price */}

@@ -29,6 +29,34 @@ router.get('/all', async (req, res) => {
   }
 });
 
+// Get all unique categories from menu items
+router.get('/categories/all', async (req, res) => {
+  try {
+    const query = `
+      SELECT DISTINCT category, COUNT(*) as item_count
+      FROM menu_items 
+      WHERE available = true
+      GROUP BY category 
+      ORDER BY category ASC
+    `;
+    
+    const result = await pool.query(query);
+    
+    res.json({
+      success: true,
+      data: result.rows,
+      count: result.rows.length
+    });
+  } catch (error) {
+    console.error('Error fetching categories:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error',
+      message: error.message
+    });
+  }
+});
+
 // Get menu items by category
 router.get('/category/:category', async (req, res) => {
   try {
@@ -120,7 +148,7 @@ router.post('/add', async (req, res) => {
                 created_at, updated_at
     `;
     
-    const values = [name, description, price, category, image_url || null, available !== undefined ? available : true];
+    const values = [name, description, price, category.trim(), image_url || null, available !== undefined ? available : true];
     const result = await pool.query(insertQuery, values);
     
     res.status(201).json({
@@ -180,7 +208,7 @@ router.put('/update/:id', async (req, res) => {
                 created_at, updated_at
     `;
     
-    const values = [name, description, price, category, image_url || null, available !== undefined ? available : true, id];
+    const values = [name, description, price, category.trim(), image_url || null, available !== undefined ? available : true, id];
     const result = await pool.query(updateQuery, values);
     
     res.json({
