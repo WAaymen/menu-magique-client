@@ -1,13 +1,14 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
-import { Plus, Minus, ShoppingCart, Bell, Receipt, MessageSquare, Eye } from "lucide-react";
+import { Plus, Minus, ShoppingCart, Receipt, MessageSquare, Eye, Clock, CheckCircle, AlertCircle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import DishModal from "./DishModal";
 import BillPage from "./BillPage";
 import ComplaintPage from "./ComplaintPage";
+import CartPage from "./CartPage";
 import steakImg from "@/assets/steak.jpg";
 import saladImg from "@/assets/salad.jpg";
 import dessertImg from "@/assets/dessert.jpg";
@@ -21,6 +22,7 @@ export interface MenuItem {
   price: number;
   category: string;
   image: string;
+  available?: boolean;
 }
 
 export interface CartItem extends MenuItem {
@@ -28,16 +30,18 @@ export interface CartItem extends MenuItem {
   notes?: string;
 }
 
-type ViewType = "menu" | "bill" | "complaint";
+type ViewType = "menu" | "bill" | "complaint" | "cart";
 
-const menuItems: MenuItem[] = [
+// Fallback static data in case database is not available
+const fallbackMenuItems: MenuItem[] = [
   {
     id: "1",
     name: "Steak Grillé",
     description: "Filet de bœuf grillé aux légumes de saison",
     price: 28.50,
     category: "Plats Principaux",
-    image: steakImg
+    image: steakImg,
+    available: true
   },
   {
     id: "2",
@@ -45,7 +49,8 @@ const menuItems: MenuItem[] = [
     description: "Salade fraîche avec croûtons et parmesan",
     price: 14.90,
     category: "Entrées",
-    image: saladImg
+    image: saladImg,
+    available: true
   },
   {
     id: "3",
@@ -53,7 +58,8 @@ const menuItems: MenuItem[] = [
     description: "Soupe traditionnelle française au fromage fondu",
     price: 9.80,
     category: "Entrées",
-    image: soupImg
+    image: soupImg,
+    available: true
   },
   {
     id: "4",
@@ -61,31 +67,149 @@ const menuItems: MenuItem[] = [
     description: "Fondant au chocolat avec fruits rouges",
     price: 8.50,
     category: "Desserts",
-    image: dessertImg
+    image: dessertImg,
+    available: true
   }
 ];
 
 const RestaurantMenu = () => {
+  const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [cart, setCart] = useState<CartItem[]>([]);
+  const [confirmedOrders, setConfirmedOrders] = useState<CartItem[]>([]);
   const [selectedCategory, setSelectedCategory] = useState("Tous");
-  const [showCart, setShowCart] = useState(false);
-  const [orderStatus, setOrderStatus] = useState<"none" | "pending" | "preparing" | "ready">("none");
+  const [categories, setCategories] = useState<string[]>(["Tous"]);
+
+  const [orderStatuses, setOrderStatuses] = useState<{[orderId: string]: "pending" | "preparing" | "ready"}>({});
   const [currentView, setCurrentView] = useState<ViewType>("menu");
   const [selectedDish, setSelectedDish] = useState<MenuItem | null>(null);
   const [isDishModalOpen, setIsDishModalOpen] = useState(false);
-  const [cartNotes, setCartNotes] = useState("");
+  const [showSuccessMessage, setShowSuccessMessage] = useState(false);
+  const [successItem, setSuccessItem] = useState<{name: string, quantity: number} | null>(null);
+
   const { toast } = useToast();
 
-  const categories = ["Tous", "Entrées", "Plats Principaux", "Desserts"];
-  const tableNumber = 12; // This would come from the QR code context
+  const tableNumber = 12;
+
+  // Load menu items from database
+  useEffect(() => {
+    const loadMenuItems = async () => {
+      try {
+        setIsLoading(true);
+        setError(null);
+        
+        // Try multiple server URLs
+        const serverUrls = [
+          'http://192.168.1.16:3001',
+          'http://localhost:3001',
+          'http://127.0.0.1:3001'
+        ];
+        
+        let workingUrl = null;
+        let lastError = null;
+        
+        // Test each server URL
+        for (const baseUrl of serverUrls) {
+          try {
+            console.log(`Testing server at: ${baseUrl}/api/health`);
+            const healthResponse = await fetch(`${baseUrl}/api/health`, {
+              method: 'GET',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+            });
+            
+            if (healthResponse.ok) {
+              const healthData = await healthResponse.json();
+              console.log('Server health check successful at:', baseUrl, healthData);
+              workingUrl = baseUrl;
+              break;
+            } else {
+              console.warn(`Server health check failed at ${baseUrl}:`, healthResponse.status);
+            }
+          } catch (healthError) {
+            console.warn(`Server health check failed at ${baseUrl}:`, healthError);
+            lastError = healthError;
+          }
+        }
+        
+        if (!workingUrl) {
+          throw new Error(`Aucun serveur accessible. URLs testées: ${serverUrls.join(', ')}. Dernière erreur: ${lastError?.message || 'Inconnue'}`);
+        }
+        
+        console.log(`Using working server at: ${workingUrl}/api/menu-items/all`);
+        
+        const response = await fetch(`${workingUrl}/api/menu-items/all`, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        });
+
+        console.log('Response status:', response.status);
+        console.log('Response headers:', response.headers);
+
+        if (response.ok) {
+          const data = await response.json();
+          console.log('Menu items loaded from database:', data);
+          
+          // Process the data to match our interface
+          const processedMenuData = data.data || data;
+          const items = Array.isArray(processedMenuData) ? processedMenuData : [];
+          
+          console.log('Processed items count:', items.length);
+          
+          // Transform database data to match our interface
+          const transformedItems = items
+            .filter(item => item.available !== false) // Filter out unavailable items
+            .map((item: any) => ({
+              id: item.id?.toString() || item.id,
+              name: item.name || 'Sans nom',
+              description: item.description || 'Aucune description',
+              price: typeof item.price === 'number' ? item.price : parseFloat(item.price || '0'),
+              category: item.category || 'Autre',
+              image: item.image_url || item.image || steakImg, // Use fallback image if none provided
+              available: item.available !== false // Default to true if not specified
+            }));
+
+          console.log('Transformed items:', transformedItems);
+          setMenuItems(transformedItems);
+
+          // Extract unique categories from loaded menu items
+          const uniqueCategories = Array.from(new Set(transformedItems.map(item => item.category)));
+          console.log('Extracted categories from database:', uniqueCategories);
+          setCategories(["Tous", ...uniqueCategories]);
+
+        } else {
+          const errorText = await response.text();
+          console.error('Response not OK:', response.status, errorText);
+          throw new Error(`Failed to load menu items: ${response.status} - ${errorText}`);
+        }
+      } catch (error) {
+        console.error('Error loading menu items:', error);
+        const errorMessage = error instanceof Error ? error.message : 'Erreur inconnue';
+        setError(`Erreur lors du chargement du menu: ${errorMessage}. Utilisation des données de secours.`);
+        // Use fallback data if database fails
+        setMenuItems(fallbackMenuItems);
+        // Extract categories from fallback data
+        const fallbackCategories = Array.from(new Set(fallbackMenuItems.map(item => item.category)));
+        setCategories(["Tous", ...fallbackCategories]);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadMenuItems();
+  }, []);
 
   const openDishModal = (item: MenuItem) => {
     setSelectedDish(item);
     setIsDishModalOpen(true);
   };
 
-  const addToCartFromModal = (item: MenuItem, quantity: number, notes?: string) => {
-    const existingItemIndex = cart.findIndex(cartItem => cartItem.id === item.id && cartItem.notes === notes);
+  const addToCartFromModal = (item: MenuItem, quantity: number) => {
+    const existingItemIndex = cart.findIndex(cartItem => cartItem.id === item.id);
     
     if (existingItemIndex >= 0) {
       setCart(cart.map((cartItem, index) => 
@@ -94,45 +218,27 @@ const RestaurantMenu = () => {
           : cartItem
       ));
     } else {
-      setCart([...cart, { ...item, quantity, notes }]);
+      setCart([...cart, { ...item, quantity }]);
     }
     
-    toast({
-      title: "Ajouté au panier",
-      description: `${item.name} (${quantity}) a été ajouté à votre commande`,
-    });
+    // Afficher le message de succès animé
+    setSuccessItem({ name: item.name, quantity });
+    setShowSuccessMessage(true);
+    
+    // Masquer le message après 2 secondes
+    setTimeout(() => {
+      setShowSuccessMessage(false);
+      setSuccessItem(null);
+    }, 2000);
   };
 
   const addToCart = (item: MenuItem) => {
     openDishModal(item);
   };
 
-  const removeFromCart = (itemIndex: number) => {
-    const item = cart[itemIndex];
-    
-    if (item.quantity > 1) {
-      setCart(cart.map((cartItem, index) => 
-        index === itemIndex 
-          ? { ...cartItem, quantity: cartItem.quantity - 1 }
-          : cartItem
-      ));
-    } else {
-      setCart(cart.filter((_, index) => index !== itemIndex));
-    }
-  };
 
-  const getTotal = () => {
-    return cart.reduce((total, item) => total + (item.price * item.quantity), 0);
-  };
 
-  // Handle different views
-  if (currentView === "bill") {
-    return <BillPage cart={cart} onBack={() => setCurrentView("menu")} tableNumber={tableNumber} />;
-  }
 
-  if (currentView === "complaint") {
-    return <ComplaintPage onBack={() => setCurrentView("menu")} tableNumber={tableNumber} />;
-  }
 
   const submitOrder = () => {
     if (cart.length === 0) {
@@ -144,38 +250,88 @@ const RestaurantMenu = () => {
       return;
     }
 
-    setOrderStatus("pending");
-    setShowCart(false);
-    toast({
-      title: "Commande envoyée",
-      description: "Votre commande a été transmise à la cuisine",
-    });
+    // Créer un ID unique pour cette commande
+    const orderId = `order_${Date.now()}`;
     
-    // Simulate order progression
+    // Ajouter les éléments du panier إلى الطلبات المؤكدة avec ID
+    const orderWithId = cart.map(item => ({ ...item, orderId }));
+    setConfirmedOrders(prevOrders => [...prevOrders, ...orderWithId]);
+    
+    // Définir le statut initial pour cette commande
+    setOrderStatuses(prev => ({ ...prev, [orderId]: "pending" }));
+    
+    setCurrentView("menu");
+    
+    // Vider le panier après تأكيد الطلب
+    setCart([]);
+    
+    // Simulate order progression for this specific order
     setTimeout(() => {
-      setOrderStatus("preparing");
-      toast({
-        title: "Commande en préparation",
-        description: "Votre commande est en cours de préparation",
-      });
+      setOrderStatuses(prev => ({ ...prev, [orderId]: "preparing" }));
     }, 3000);
     
     setTimeout(() => {
-      setOrderStatus("ready");
-      toast({
-        title: "Commande prête",
-        description: "Votre commande est prête à être servie",
-      });
+      setOrderStatuses(prev => ({ ...prev, [orderId]: "ready" }));
     }, 8000);
   };
 
+  // Handle different views
+  if (currentView === "bill") {
+    return <BillPage cart={confirmedOrders} onBack={() => setCurrentView("menu")} tableNumber={tableNumber} />;
+  }
+
+  if (currentView === "complaint") {
+    return <ComplaintPage onBack={() => setCurrentView("menu")} tableNumber={tableNumber} />;
+  }
+
+  if (currentView === "cart") {
+    return (
+      <CartPage 
+        cart={cart} 
+        onBack={() => setCurrentView("menu")} 
+        onUpdateCart={setCart}
+        onSubmitOrder={submitOrder}
+        orderStatuses={orderStatuses}
+      />
+    );
+  }
+
   const filteredItems = selectedCategory === "Tous" 
-    ? menuItems 
-    : menuItems.filter(item => item.category === selectedCategory);
+    ? menuItems.filter(item => item.available !== false) // Hide unavailable dishes
+    : menuItems.filter(item => item.category === selectedCategory && item.available !== false); // Hide unavailable dishes in category view
+
+  // Show loading state
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-background via-restaurant-cream to-background flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-primary mx-auto mb-4"></div>
+          <h2 className="text-xl font-semibold text-primary">Chargement du menu...</h2>
+          <p className="text-muted-foreground">Connexion à la base de données</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Show error state
+  if (error) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-background via-restaurant-cream to-background flex items-center justify-center">
+        <div className="text-center max-w-md mx-auto p-6">
+          <div className="text-red-500 text-6xl mb-4">⚠️</div>
+          <h2 className="text-xl font-semibold text-red-600 mb-2">Erreur de connexion</h2>
+          <p className="text-muted-foreground mb-4">{error}</p>
+          <Button onClick={() => window.location.reload()} variant="outline">
+            Réessayer
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <>
-      <div className="min-h-screen bg-gradient-to-br from-background via-restaurant-cream to-background">
+      <div className="bg-gradient-to-br from-background via-restaurant-cream to-background min-h-screen overflow-y-auto">
         {/* Hero Header */}
         <div className="relative h-48 overflow-hidden">
           <img 
@@ -186,84 +342,174 @@ const RestaurantMenu = () => {
           <div className="absolute inset-0 bg-gradient-to-r from-restaurant-dark/70 to-transparent" />
           <div className="absolute inset-0 flex items-center justify-between px-6">
             <div>
-              <h1 className="text-4xl font-bold text-white mb-2">Menu Magique</h1>
+              <h1 className="text-4xl font-bold text-white mb-2">Menu</h1>
               <p className="text-restaurant-cream text-lg">Table N° {tableNumber}</p>
+              <p className="text-restaurant-cream text-sm opacity-80">
+                {filteredItems.length} plats disponibles sur {menuItems.length} au total
+              </p>
             </div>
-            <div className="flex gap-3">
-              <Button 
-                variant="outline" 
-                size="icon"
-                className="bg-white/10 border-white/20 text-white hover:bg-white/20"
-                onClick={() => setShowCart(!showCart)}
-              >
-                <ShoppingCart className="h-5 w-5" />
-                {cart.length > 0 && (
-                  <Badge className="absolute -top-2 -right-2 h-5 w-5 rounded-full p-0 flex items-center justify-center bg-primary text-xs">
-                    {cart.reduce((sum, item) => sum + item.quantity, 0)}
-                  </Badge>
-                )}
-              </Button>
-              {cart.length > 0 && (
-                <Button 
-                  variant="outline" 
-                  size="icon"
-                  className="bg-white/10 border-white/20 text-white hover:bg-white/20"
-                  onClick={() => setCurrentView("bill")}
-                >
-                  <Receipt className="h-5 w-5" />
+                        <div className="flex gap-3">
+                             <Button 
+                 variant="outline" 
+                 size="icon"
+                 className="relative bg-white/10 backdrop-blur-md border-white/30 text-white hover:bg-white/20 hover:border-white/50 hover:scale-110 transition-all duration-300 shadow-lg hover:shadow-white/20 group"
+                 onClick={() => setCurrentView("cart")}
+                 title={cart.length > 0 ? "⚠️ Confirmez vos commandes dans le panier !" : "Voir le panier"}
+               >
+                 <ShoppingCart className="h-5 w-5 group-hover:rotate-12 transition-transform duration-300" />
+                                                     {cart.length > 0 && (
+                     <div className="absolute -bottom-8 left-1/2 transform -translate-x-1/2 bg-red-500 text-white text-xs px-2 py-1 rounded-md whitespace-nowrap animate-bounce shadow-lg">
+                       ⚠️ Confirmez !
+                     </div>
+                   )}
+                   {cart.length > 0 && (
+                     <div className="absolute -bottom-16 left-1/2 transform -translate-x-1/2 bg-yellow-500 text-black text-xs px-3 py-2 rounded-lg whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity duration-300 shadow-lg">
+                       Commandes en attente
+                     </div>
+                   )}
+                   {cart.length > 0 && (
+                     <Badge 
+                       className="absolute -top-2 -right-2 h-6 w-6 rounded-full p-0 flex items-center justify-center bg-gradient-to-r from-red-500 to-pink-500 text-white text-xs font-bold animate-pulse shadow-lg"
+                     >
+                       {cart.reduce((sum, item) => sum + item.quantity, 0)}
+                     </Badge>
+                   )}
+
                 </Button>
-              )}
+                                                               {/* Icone Facture - toujours visible si il y a des commandes confirmées */}
+                                {(cart.length > 0 || confirmedOrders.length > 0) && (
+                    <Button 
+                      variant="outline" 
+                      size="icon"
+                      className="relative bg-white/10 backdrop-blur-md border-white/30 text-white hover:bg-white/20 hover:border-white/50 hover:scale-110 transition-all duration-300 shadow-lg hover:shadow-white/20 group"
+                      onClick={() => setCurrentView("bill")}
+                      title={confirmedOrders.length > 0 ? "Voir la facture détaillée" : "Voir la facture détaillée"}
+                    >
+                      <Receipt className="h-5 w-5 group-hover:rotate-12 transition-transform duration-300" />
+                    </Button>
+                  )}
               <Button 
                 variant="outline" 
                 size="icon"
-                className="bg-white/10 border-white/20 text-white hover:bg-white/20"
+                className="relative bg-white/10 backdrop-blur-md border-white/30 text-white hover:bg-white/20 hover:border-white/50 hover:scale-110 transition-all duration-300 shadow-lg hover:shadow-white/20 group"
                 onClick={() => setCurrentView("complaint")}
               >
-                <MessageSquare className="h-5 w-5" />
+                <MessageSquare className="h-5 w-5 group-hover:rotate-12 transition-transform duration-300" />
               </Button>
-              {orderStatus !== "none" && (
-                <Button 
-                  variant="outline" 
-                  size="icon"
-                  className="bg-white/10 border-white/20 text-white hover:bg-white/20"
-                >
-                  <Bell className="h-5 w-5" />
-                </Button>
-              )}
+              
             </div>
           </div>
         </div>
 
-      {/* Order Status */}
-      {orderStatus !== "none" && (
-        <div className="bg-primary/10 border-l-4 border-primary p-4 m-4">
-          <div className="flex items-center gap-3">
-            <Bell className="h-5 w-5 text-primary" />
-            <div>
-              <p className="font-semibold text-primary">
-                {orderStatus === "pending" && "Commande en attente"}
-                {orderStatus === "preparing" && "Commande en préparation"}
-                {orderStatus === "ready" && "Commande prête"}
-              </p>
-              <p className="text-sm text-muted-foreground">
-                {orderStatus === "pending" && "Votre commande a été reçue"}
-                {orderStatus === "preparing" && "Nos chefs préparent votre commande"}
-                {orderStatus === "ready" && "Votre commande est prête à être servie"}
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
+                                                                                                                               {/* Order Statuses - Display all confirmed orders with their statuses */}
+           {Object.keys(orderStatuses).length > 0 && (
+             <div className="space-y-4 m-4">
+                               {Object.entries(orderStatuses).map(([orderId, status]) => (
+                  <div 
+                    key={orderId} 
+                    className={`p-4 border-l-4 cursor-pointer transition-all duration-300 hover:shadow-md hover:scale-[1.02] ${
+                      status === "pending" ? "bg-orange-50 border-orange-400" :
+                      status === "preparing" ? "bg-blue-50 border-blue-400" :
+                      "bg-green-50 border-green-400"
+                    }`}
+                    onClick={() => {
+                      if (status === "preparing" || status === "ready") {
+                        setCurrentView("bill");
+                      }
+                    }}
+                    title={status === "preparing" || status === "ready" ? "Cliquez pour voir la facture" : ""}
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
+                        status === "pending" ? "bg-orange-100 text-orange-600" :
+                        status === "preparing" ? "bg-blue-100 text-blue-600" :
+                        "bg-green-100 text-green-600"
+                      }`}>
+                        {status === "pending" && <AlertCircle className="h-4 w-4" />}
+                        {status === "preparing" && <Clock className="h-4 w-4" />}
+                        {status === "ready" && <CheckCircle className="h-4 w-4" />}
+                      </div>
+                      <div className="flex-1">
+                        <p className={`font-semibold ${
+                          status === "pending" ? "text-orange-700" :
+                          status === "preparing" ? "text-blue-700" :
+                          "text-green-700"
+                        }`}>
+                          {status === "pending" && "Commande en attente"}
+                          {status === "preparing" && "Commande en préparation"}
+                          {status === "ready" && "Commande prête"}
+                        </p>
+                        <p className="text-sm text-muted-foreground">
+                          {status === "pending" && "Votre commande a été reçue"}
+                          {status === "preparing" && "Nos chefs préparent votre commande"}
+                          {status === "ready" && "Votre commande est prête à être servie"}
+                        </p>
+                        {(status === "preparing" || status === "ready") && (
+                          <p className="text-xs text-muted-foreground mt-2 italic">
+                            💡 Cliquez pour voir la facture
+                          </p>
+                        )}
+                      </div>
+                      {(status === "preparing" || status === "ready") && (
+                        <div className="text-muted-foreground">
+                          <Receipt className="h-5 w-5" />
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+               
+               {/* New Order Status (if there are new items in cart after confirming previous order) */}
+               {cart.length > 0 && (
+                 <div className="bg-red-50 border-l-4 border-red-400 p-4 rounded-r-lg">
+                   <div className="flex items-center gap-3">
+                     <div className="w-8 h-8 bg-red-100 text-red-600 rounded-full flex items-center justify-center">
+                       <AlertCircle className="h-4 w-4" />
+                     </div>
+                     <div>
+                       <p className="font-semibold text-red-700">
+                         Nouvelle commande en attente
+                       </p>
+                       <p className="text-sm text-muted-foreground">
+                         Vous avez {cart.reduce((sum, item) => sum + item.quantity, 0)} nouvel(le)(s) article(s) dans votre panier. Confirmez cette nouvelle commande !
+                       </p>
+                     </div>
+                   </div>
+                 </div>
+               )}
+             </div>
+           )}
 
-        <div className="container mx-auto px-4 py-6">
+          {/* Cart Reminder */}
+          {cart.length > 0 && Object.keys(orderStatuses).length === 0 && (
+            <div className="bg-restaurant-warm/10 border-l-4 border-restaurant-warm p-4 m-4">
+              <div className="flex items-center gap-3">
+                <ShoppingCart className="h-5 w-5 text-restaurant-warm" />
+                <div>
+                  <p className="font-semibold text-restaurant-warm">
+                    Commandes en attente
+                  </p>
+                  <p className="text-sm text-muted-foreground">
+                    Vous avez {cart.reduce((sum, item) => sum + item.quantity, 0)} article(s) dans votre panier. N'oubliez pas de confirmer votre commande !
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+        <div className="container mx-auto px-4 py-6 pb-32">
           {/* Category Filter */}
-          <div className="flex gap-2 mb-6 overflow-x-auto pb-2">
+          <div className="flex gap-3 mb-6 overflow-x-auto pb-2">
             {categories.map((category) => (
               <Button
                 key={category}
                 variant={selectedCategory === category ? "default" : "outline"}
                 onClick={() => setSelectedCategory(category)}
-                className="whitespace-nowrap"
+                className={`whitespace-nowrap px-6 py-3 rounded-xl font-medium transition-all duration-300 transform hover:scale-105 ${
+                  selectedCategory === category 
+                    ? "bg-gradient-to-r from-primary to-restaurant-warm text-white shadow-lg shadow-primary/30 hover:shadow-xl hover:shadow-primary/40" 
+                    : "bg-white/80 backdrop-blur-sm border-2 border-gray-200 text-gray-700 hover:bg-white hover:border-primary/30 hover:text-primary hover:shadow-md"
+                }`}
               >
                 {category}
               </Button>
@@ -300,9 +546,9 @@ const RestaurantMenu = () => {
                       e.stopPropagation();
                       openDishModal(item);
                     }}
-                    className="w-full bg-gradient-to-r from-primary to-restaurant-warm hover:from-primary/90 hover:to-restaurant-warm/90 text-white font-medium"
+                    className="w-full bg-gradient-to-r from-primary to-restaurant-warm hover:from-primary/90 hover:to-restaurant-warm/90 text-white font-medium py-3 rounded-xl shadow-lg hover:shadow-xl hover:shadow-primary/30 transform hover:scale-105 transition-all duration-300 group"
                   >
-                    <Eye className="h-4 w-4 mr-2" />
+                    <Eye className="h-4 w-4 mr-2 group-hover:scale-110 transition-transform duration-300" />
                     Voir les détails
                   </Button>
                 </CardContent>
@@ -310,90 +556,43 @@ const RestaurantMenu = () => {
             ))}
           </div>
 
-          {/* Shopping Cart */}
-          {showCart && cart.length > 0 && (
-            <Card className="mb-6 bg-card/95 backdrop-blur-sm">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <ShoppingCart className="h-5 w-5" />
-                  Votre Commande
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  {cart.map((item, index) => (
-                    <div key={`${item.id}-${index}`} className="flex items-center justify-between border-b pb-3">
-                      <div className="flex-1">
-                        <h4 className="font-medium">{item.name}</h4>
-                        {item.notes && (
-                          <p className="text-xs text-muted-foreground italic">Note: {item.notes}</p>
-                        )}
-                        <p className="text-sm text-muted-foreground">{item.price.toFixed(2)} € x {item.quantity}</p>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Button 
-                          size="icon" 
-                          variant="outline" 
-                          onClick={() => removeFromCart(index)}
-                          className="h-8 w-8"
-                        >
-                          <Minus className="h-3 w-3" />
-                        </Button>
-                        <span className="w-8 text-center">{item.quantity}</span>
-                        <Button 
-                          size="icon" 
-                          variant="outline" 
-                          onClick={() => addToCartFromModal(item, 1, item.notes)}
-                          className="h-8 w-8"
-                        >
-                          <Plus className="h-3 w-3" />
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
-                  
-                  {/* Order Notes */}
-                  <div className="space-y-2 pt-3 border-t">
-                    <label className="text-sm font-medium">Notes pour la commande (optionnel)</label>
-                    <Textarea 
-                      placeholder="Demandes spéciales pour toute la commande..."
-                      value={cartNotes}
-                      onChange={(e) => setCartNotes(e.target.value)}
-                      className="min-h-[60px]"
-                    />
-                  </div>
-                  
-                  <div className="flex justify-between items-center pt-3 border-t font-bold text-lg">
-                    <span>Total:</span>
-                    <span className="text-primary">{getTotal().toFixed(2)} €</span>
-                  </div>
-                  
-                  <div className="flex gap-3 pt-4">
-                    <Button 
-                      onClick={submitOrder}
-                      disabled={orderStatus !== "none"}
-                      className="flex-1 bg-gradient-to-r from-primary to-restaurant-warm hover:from-primary/90 hover:to-restaurant-warm/90"
-                    >
-                      <Receipt className="h-4 w-4 mr-2" />
-                      Valider la commande
-                    </Button>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          )}
+
         </div>
       </div>
 
-      {/* Dish Modal */}
-      <DishModal 
-        dish={selectedDish}
-        isOpen={isDishModalOpen}
-        onClose={() => setIsDishModalOpen(false)}
-        onAddToCart={addToCartFromModal}
-      />
-    </>
-  );
-};
+             {/* Dish Modal */}
+       <DishModal 
+         dish={selectedDish}
+         isOpen={isDishModalOpen}
+         onClose={() => setIsDishModalOpen(false)}
+         onAddToCart={addToCartFromModal}
+       />
+
+       {/* Success Message Animation */}
+       {showSuccessMessage && successItem && (
+         <div className="fixed inset-0 flex items-center justify-center z-50 pointer-events-none">
+           <div className="bg-gradient-to-r from-green-500 to-emerald-600 text-white p-6 rounded-2xl shadow-2xl transform animate-in slide-in-from-bottom-4 zoom-in-95 duration-500 pointer-events-auto">
+             <div className="flex items-center gap-4">
+               <div className="bg-white/20 p-3 rounded-full">
+                 <ShoppingCart className="h-8 w-8 text-white" />
+               </div>
+               <div>
+                 <h3 className="text-xl font-bold mb-1">🎉 Ajouté avec succès !</h3>
+                 <p className="text-green-100">
+                   {successItem.name} (x{successItem.quantity}) a été ajouté à votre panier
+                 </p>
+               </div>
+             </div>
+             <div className="mt-4 flex justify-center">
+               <div className="w-2 h-2 bg-white/60 rounded-full animate-bounce mx-1"></div>
+               <div className="w-2 h-2 bg-white/60 rounded-full animate-bounce mx-1" style={{animationDelay: '0.1s'}}></div>
+               <div className="w-2 h-2 bg-white/60 rounded-full animate-bounce mx-1" style={{animationDelay: '0.2s'}}></div>
+             </div>
+           </div>
+         </div>
+       )}
+     </>
+   );
+ };
 
 export default RestaurantMenu;

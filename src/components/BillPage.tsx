@@ -48,7 +48,7 @@ const BillPage = ({ cart, onBack, tableNumber }: BillPageProps) => {
               <div>
                 <CardTitle className="flex items-center gap-2">
                   <Receipt className="h-5 w-5" />
-                  Menu Magique
+                  Menu 
                 </CardTitle>
                 <p className="text-sm text-muted-foreground mt-1">
                   Table N° {tableNumber} • {orderDate}
@@ -73,7 +73,7 @@ const BillPage = ({ cart, onBack, tableNumber }: BillPageProps) => {
                       <p className="text-xs text-muted-foreground italic">Note: {item.notes}</p>
                     )}
                     <p className="text-sm text-muted-foreground">
-                      {item.price.toFixed(2)} € × {item.quantity}
+                      {typeof item.price === 'number' ? item.price.toFixed(2) : parseFloat(item.price || 0).toFixed(2)} DZD × {item.quantity}
                     </p>
                   </div>
                   <p className="font-medium">

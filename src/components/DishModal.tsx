@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Plus, Minus, ShoppingCart } from "lucide-react";
 import { MenuItem } from "./RestaurantMenu";
@@ -10,19 +9,18 @@ interface DishModalProps {
   dish: MenuItem | null;
   isOpen: boolean;
   onClose: () => void;
-  onAddToCart: (dish: MenuItem, quantity: number, notes?: string) => void;
+  onAddToCart: (dish: MenuItem, quantity: number) => void;
 }
 
 const DishModal = ({ dish, isOpen, onClose, onAddToCart }: DishModalProps) => {
   const [quantity, setQuantity] = useState(1);
-  const [notes, setNotes] = useState("");
 
-  if (!dish) return null;
+  // Don't render if no dish or modal is not open
+  if (!dish || !isOpen) return null;
 
   const handleAddToCart = () => {
-    onAddToCart(dish, quantity, notes);
+    onAddToCart(dish, quantity);
     setQuantity(1);
-    setNotes("");
     onClose();
   };
 
@@ -30,19 +28,25 @@ const DishModal = ({ dish, isOpen, onClose, onAddToCart }: DishModalProps) => {
   const decreaseQuantity = () => setQuantity(q => Math.max(1, q - 1));
 
   return (
-    <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-md">
+    <Dialog open={isOpen} onOpenChange={(open) => {
+      if (!open) onClose();
+    }}>
+      <DialogContent className="sm:max-w-md max-h-[90vh] overflow-y-auto dialog-content">
         <DialogHeader>
           <DialogTitle className="text-xl">{dish.name}</DialogTitle>
         </DialogHeader>
         
-        <div className="space-y-4">
+        <div className="space-y-4 pb-4">
           {/* Image */}
           <div className="aspect-video overflow-hidden rounded-lg">
             <img 
-              src={dish.image} 
+              src={dish.image_url || '/placeholder.svg'} 
               alt={dish.name}
               className="w-full h-full object-cover"
+              onError={(e) => {
+                const target = e.target as HTMLImageElement;
+                target.src = '/placeholder.svg';
+              }}
             />
           </div>
           
@@ -51,7 +55,7 @@ const DishModal = ({ dish, isOpen, onClose, onAddToCart }: DishModalProps) => {
             <p className="text-muted-foreground">{dish.description}</p>
             <div className="flex justify-between items-center">
               <Badge variant="secondary" className="bg-restaurant-gold/20 text-restaurant-dark text-lg px-3 py-1">
-                {dish.price.toFixed(2)} €
+                {typeof dish.price === 'number' ? dish.price.toFixed(2) : parseFloat(dish.price || 0).toFixed(2)} DZD
               </Badge>
               <Badge variant="outline">{dish.category}</Badge>
             </div>
@@ -81,23 +85,14 @@ const DishModal = ({ dish, isOpen, onClose, onAddToCart }: DishModalProps) => {
             </div>
           </div>
           
-          {/* Notes */}
-          <div className="space-y-2">
-            <label className="text-sm font-medium">Notes spéciales (optionnel)</label>
-            <Textarea 
-              placeholder="Ex: sans sel, bien cuit, sauce à part..."
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              className="min-h-[80px]"
-            />
-          </div>
+
           
           {/* Total and Add Button */}
           <div className="space-y-3 pt-2 border-t">
             <div className="flex justify-between items-center">
               <span className="font-medium">Total:</span>
               <span className="text-xl font-bold text-primary">
-                {(dish.price * quantity).toFixed(2)} €
+                {((typeof dish.price === 'number' ? dish.price : parseFloat(dish.price || 0)) * quantity).toFixed(2)} DZD
               </span>
             </div>
             
