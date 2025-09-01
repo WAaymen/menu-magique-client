@@ -25,6 +25,15 @@ export const Dashboard = ({ currentUser, onLogout }: DashboardProps) => {
   const [isTableSelectionModalOpen, setIsTableSelectionModalOpen] = useState(false);
   const [isNotificationPanelOpen, setIsNotificationPanelOpen] = useState(false);
 
+  // Ensure we're in cashier mode
+  useEffect(() => {
+    localStorage.setItem('cashierApp', 'true');
+    localStorage.setItem('userRole', 'cashier');
+    // Clear any admin-related items
+    localStorage.removeItem('adminAuth');
+    localStorage.removeItem('adminUser');
+  }, []);
+
   // Mock data - tables
   const [tables] = useState<Table[]>([
     { id: 1, number: "1", status: "free", seats: 4 },

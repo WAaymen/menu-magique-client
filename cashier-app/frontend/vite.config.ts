@@ -12,6 +12,8 @@ export default defineConfig({
   },
   server: {
     port: 3000,
-    host: true,
+    host: "localhost",
+    strictPort: true, // Force exact port, don't auto-increment
+    open: false, // Don't auto-open browser
   },
 })

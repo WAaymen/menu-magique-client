@@ -55,7 +55,7 @@ export function CashierLogout({ onLogout }: CashierLogoutProps) {
       // Clear local storage as well
       localStorage.removeItem('cashier');
       
-      // Redirect back to cashier login
+      // Redirect back to cashier login (cashier-app frontend runs on port 3000)
       window.location.href = 'http://localhost:3000';
       
       if (onLogout) {

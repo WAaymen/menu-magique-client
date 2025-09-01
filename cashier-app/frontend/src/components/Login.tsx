@@ -125,6 +125,10 @@ export function Login({ onLogin }: LoginProps) {
           
           <div className="mt-6 text-center text-sm text-muted-foreground">
             <p>Contactez votre administrateur si vous avez oublié vos identifiants</p>
+            <div className="mt-2 p-2 bg-blue-50 border border-blue-200 rounded">
+              <p className="text-blue-800 font-medium">🛒 Interface Caissier</p>
+              <p className="text-blue-600 text-xs">Vous resterez dans l'interface caissier</p>
+            </div>
           </div>
         </CardContent>
       </Card>

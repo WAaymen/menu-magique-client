@@ -1,5 +1,9 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 
+// CASHIER AUTHENTICATION CONTEXT
+// This is for CASHIERS ONLY - they should stay in the cashier interface
+// NO REDIRECTS TO ADMIN DASHBOARD
+
 interface Cashier {
   id: number;
   name: string;
@@ -56,8 +60,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setCashier(cashierData);
         localStorage.setItem('cashier', JSON.stringify(cashierData));
         
-        // Redirect to admin dashboard after successful login
-        window.location.href = 'http://localhost:8080';
+        // Cashier stays in cashier interface - NO REDIRECT TO ADMIN DASHBOARD
         return true;
       } else {
         // If API fails, fallback to mock validation for development
@@ -73,8 +76,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setCashier(mockCashier);
           localStorage.setItem('cashier', JSON.stringify(mockCashier));
           
-          // Redirect to admin dashboard after successful login
-          window.location.href = 'http://localhost:8080';
+          // Cashier stays in cashier interface - NO REDIRECT TO ADMIN DASHBOARD
           return true;
         }
         return false;
@@ -92,8 +94,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setCashier(mockCashier);
         localStorage.setItem('cashier', JSON.stringify(mockCashier));
         
-        // Redirect to admin dashboard after successful login
-        window.location.href = 'http://localhost:8080';
+        // Cashier stays in cashier interface - NO REDIRECT TO ADMIN DASHBOARD
         return true;
       }
       return false;
