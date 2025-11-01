@@ -1,8 +1,8 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Minus, ShoppingCart } from "lucide-react";
+import { Plus, Minus, ShoppingCart, ChevronLeft, ChevronRight, Play, Pause } from "lucide-react";
 import { MenuItem } from "./RestaurantMenu";
 import steakImg from "@/assets/steak.jpg";
 import saladImg from "@/assets/salad.jpg";
@@ -15,6 +15,156 @@ interface DishModalProps {
   onClose: () => void;
   onAddToCart: (dish: MenuItem, quantity: number) => void;
 }
+
+// Image Slider Component for DishModal
+const ImageSlider = ({ images, alt, className = "" }: { images: string[], alt: string, className?: string }) => {
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [isAutoPlaying, setIsAutoPlaying] = useState(true);
+
+  console.log('ImageSlider rendered with:', { images, alt, currentIndex });
+
+  // Reset currentIndex when images change
+  useEffect(() => {
+    setCurrentIndex(0);
+    setIsAutoPlaying(true);
+    console.log('ImageSlider: Reset currentIndex to 0 for new images');
+  }, [images]);
+
+  // Ensure currentIndex is always valid
+  useEffect(() => {
+    if (currentIndex >= images.length) {
+      setCurrentIndex(0);
+      console.log('ImageSlider: Fixed invalid currentIndex, reset to 0');
+    }
+  }, [currentIndex, images.length]);
+
+  // Auto-play functionality
+  useEffect(() => {
+    if (!isAutoPlaying || images.length <= 1) return;
+
+    const interval = setInterval(() => {
+      setCurrentIndex((prev) => {
+        const next = (prev + 1) % images.length;
+        console.log('Auto-play: Next image:', prev, '->', next);
+        
+        // Stop auto-play when we reach the last image
+        if (next === 0) {
+          setIsAutoPlaying(false);
+          console.log('Auto-play: Reached end, stopping auto-play');
+        }
+        
+        return next;
+      });
+    }, 3000); // Change image every 3 seconds
+
+    return () => clearInterval(interval);
+  }, [isAutoPlaying, images.length]);
+
+  if (!images || images.length === 0) return null;
+  if (images.length === 1) {
+    return (
+      <img
+        src={images[0]}
+        alt={alt}
+        className={className}
+        onError={(e) => {
+          const target = e.target as HTMLImageElement;
+          target.style.display = 'none';
+        }}
+      />
+    );
+  }
+
+  const nextImage = () => {
+    if (images.length <= 1) return;
+    setIsAutoPlaying(false); // Stop auto-play when user manually navigates
+    setCurrentIndex((prev) => {
+      const next = (prev + 1) % images.length;
+      console.log('Next image:', prev, '->', next, 'Total images:', images.length);
+      return next;
+    });
+  };
+
+  const prevImage = () => {
+    if (images.length <= 1) return;
+    setIsAutoPlaying(false); // Stop auto-play when user manually navigates
+    setCurrentIndex((prev) => {
+      const prevIndex = (prev - 1 + images.length) % images.length;
+      console.log('Previous image:', prev, '->', prevIndex, 'Total images:', images.length);
+      return prevIndex;
+    });
+  };
+
+  return (
+    <div className="relative group">
+      <img
+        src={images[currentIndex]}
+        alt={alt}
+        className={className}
+        onLoad={() => console.log('Image loaded:', images[currentIndex])}
+        onError={(e) => {
+          console.log('Image failed to load:', images[currentIndex]);
+          const target = e.target as HTMLImageElement;
+          target.style.display = 'none';
+        }}
+      />
+      
+      {/* Navigation arrows */}
+      <button
+        onClick={prevImage}
+        className="absolute left-2 top-1/2 transform -translate-y-1/2 bg-black/50 hover:bg-black/70 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"
+        aria-label="Previous image"
+      >
+        <ChevronLeft className="h-4 w-4" />
+      </button>
+      
+      <button
+        onClick={nextImage}
+        className="absolute right-2 top-1/2 transform -translate-y-1/2 bg-black/50 hover:bg-black/70 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"
+        aria-label="Next image"
+      >
+        <ChevronRight className="h-4 w-4" />
+      </button>
+      
+      {/* Image indicators */}
+      <div className="absolute bottom-2 left-1/2 transform -translate-x-1/2 flex space-x-1">
+        {images.map((_, index) => (
+          <button
+            key={index}
+            onClick={() => {
+              console.log('Dot clicked:', index, 'Current:', currentIndex);
+              setIsAutoPlaying(false); // Stop auto-play when user manually navigates
+              setCurrentIndex(index);
+            }}
+            className={`w-2 h-2 rounded-full transition-colors ${
+              index === currentIndex ? 'bg-white' : 'bg-white/50'
+            }`}
+            aria-label={`Go to image ${index + 1}`}
+          />
+        ))}
+      </div>
+      
+      {/* Image counter */}
+      <div className="absolute top-2 right-2 bg-black/50 text-white text-xs px-2 py-1 rounded">
+        {currentIndex + 1} / {images.length}
+      </div>
+      
+      {/* Play/Pause button */}
+      {images.length > 1 && (
+        <button
+          onClick={() => {
+            setIsAutoPlaying(!isAutoPlaying);
+            console.log('Auto-play toggled:', !isAutoPlaying);
+          }}
+          className="absolute top-2 left-2 bg-black/50 hover:bg-black/70 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"
+          aria-label={isAutoPlaying ? "Pause slideshow" : "Play slideshow"}
+        >
+          {isAutoPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
+        </button>
+      )}
+    </div>
+  );
+};
 
 const DishModal = ({ dish, isOpen, onClose, onAddToCart }: DishModalProps) => {
   const [quantity, setQuantity] = useState(1);
@@ -43,26 +193,11 @@ const DishModal = ({ dish, isOpen, onClose, onAddToCart }: DishModalProps) => {
         <div className="space-y-4 pb-4">
           {/* Image */}
           <div className="aspect-video overflow-hidden rounded-lg bg-gray-100">
-            {dish.image ? (
-              <img 
-                src={dish.image} 
+            {dish.image || (dish.images && dish.images.length > 0) ? (
+              <ImageSlider 
+                images={dish.images || [dish.image]} 
                 alt={dish.name}
                 className="w-full h-full object-cover"
-                onError={(e) => {
-                  console.log('Image failed to load in DishModal for:', dish.name, 'Image:', dish.image);
-                  const target = e.target as HTMLImageElement;
-                  
-                  // Use category-appropriate fallback image
-                  if (dish.category === 'Salades') {
-                    target.src = saladImg;
-                  } else if (dish.category === 'Entrées') {
-                    target.src = soupImg;
-                  } else if (dish.category === 'Desserts') {
-                    target.src = dessertImg;
-                  } else {
-                    target.src = steakImg;
-                  }
-                }}
               />
             ) : (
               <div className="w-full h-full flex items-center justify-center text-gray-400">

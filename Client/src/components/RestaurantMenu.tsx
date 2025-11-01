@@ -24,6 +24,7 @@ export interface MenuItem {
   price: number;
   category: string;
   image: string;
+  images?: string[]; // Support multiple images
   available?: boolean;
 }
 
@@ -33,6 +34,7 @@ export interface CartItem extends MenuItem {
   tableNumber?: string;
   orderId?: string; // Add orderId field for confirmed orders
 }
+
 
 type ViewType = "menu" | "bill" | "complaint" | "cart";
 
@@ -94,6 +96,11 @@ const RestaurantMenu = () => {
 
   const { toast } = useToast();
   const { socket, isConnected, sendOrder, joinTable, orderStatusUpdates } = useSocket();
+  
+  // Log socket connection status for debugging
+  useEffect(() => {
+    console.log('🔌 Socket connection status:', { isConnected, socket: !!socket });
+  }, [isConnected, socket]);
 
   const tableNumber = 12;
 
@@ -216,9 +223,9 @@ const RestaurantMenu = () => {
         
         // Try multiple server URLs
         const serverUrls = [
-          'http://localhost:3001',
-          'http://127.0.0.1:3001',
-          'http://192.168.1.16:3001'
+          'http://localhost:8000',
+          'http://127.0.0.1:8000',
+          'http://192.168.1.16:8000'
         ];
         
         let workingUrl = null;
@@ -227,9 +234,9 @@ const RestaurantMenu = () => {
         // Test each server URL
         for (const baseUrl of serverUrls) {
           try {
-            console.log(`Testing server at: ${baseUrl}/api/health`);
+            console.log(`Testing server at: ${baseUrl}/api/test`);
             
-            const healthResponse = await fetch(`${baseUrl}/api/health`, {
+            const healthResponse = await fetch(`${baseUrl}/api/test`, {
               method: 'GET',
               headers: {
                 'Content-Type': 'application/json',
@@ -254,9 +261,9 @@ const RestaurantMenu = () => {
           throw new Error(`Aucun serveur accessible. URLs testées: ${serverUrls.join(', ')}. Dernière erreur: ${lastError?.message || 'Inconnue'}`);
         }
         
-        console.log(`Using working server at: ${workingUrl}/api/menu-items/all`);
+        console.log(`Using working server at: ${workingUrl}/api/dishes`);
         
-        const response = await fetch(`${workingUrl}/api/menu-items/all`, {
+        const response = await fetch(`${workingUrl}/api/dishes`, {
           method: 'GET',
           headers: {
             'Content-Type': 'application/json',
@@ -270,9 +277,8 @@ const RestaurantMenu = () => {
           const data = await response.json();
           console.log('Menu items loaded from database:', data);
           
-          // Process the data to match our interface
-          const processedMenuData = data.data || data;
-          const items = Array.isArray(processedMenuData) ? processedMenuData : [];
+          // Process the data to match our interface (Laravel returns data directly)
+          const items = Array.isArray(data) ? data : [];
           
           console.log('Processed items count:', items.length);
           
@@ -281,6 +287,7 @@ const RestaurantMenu = () => {
             .filter(item => item.available !== false) // Filter out unavailable items
             .map((item: any) => {
               console.log('Processing item:', item);
+              console.log('Item images array:', item.images);
               console.log('Item image_url:', item.image_url);
               console.log('Item image:', item.image);
               
@@ -294,13 +301,25 @@ const RestaurantMenu = () => {
                 fallbackImage = dessertImg;
               }
               
+              // Get all images from the images array, or use fallback
+              let imageUrls = [fallbackImage];
+              if (item.images && Array.isArray(item.images) && item.images.length > 0) {
+                // Convert all images to full URLs
+                imageUrls = item.images.map(imagePath => `http://localhost:8000${imagePath}`);
+              } else if (item.image_url) {
+                imageUrls = [item.image_url];
+              } else if (item.image) {
+                imageUrls = [item.image];
+              }
+              
               return {
                 id: item.id?.toString() || item.id,
                 name: item.name || 'Sans nom',
                 description: item.description || 'Aucune description',
                 price: typeof item.price === 'number' ? item.price : parseFloat(item.price || '0'),
                 category: item.category || 'Autre',
-                image: item.image_url || item.image || fallbackImage, // Use category-appropriate fallback image
+                image: imageUrls[0], // Use first image as primary
+                images: imageUrls, // Store all images for slider
                 available: item.available !== false // Default to true if not specified
               };
             });

@@ -1,39 +1,41 @@
-const { Pool } = require('pg');
+const sqlite3 = require('sqlite3').verbose();
 const fs = require('fs');
 const path = require('path');
 
-// Read config file
-const configPath = path.join(__dirname, 'config.env');
-const configContent = fs.readFileSync(configPath, 'utf8');
-const config = {};
-
-configContent.split('\n').forEach(line => {
-  const [key, value] = line.split('=');
-  if (key && value && !key.startsWith('#')) {
-    config[key.trim()] = value.trim();
+// Create SQLite database connection
+const dbPath = path.join(__dirname, 'restaurant.db');
+const db = new sqlite3.Database(dbPath, (err) => {
+  if (err) {
+    console.error('❌ Database connection error:', err);
+  } else {
+    console.log('✅ Connected to SQLite database');
   }
 });
 
-// Create PostgreSQL connection pool
-const pool = new Pool({
-  host: config.DB_HOST || 'localhost',
-  port: config.DB_PORT || 5432,
-  database: config.DB_NAME || 'RestaurantMangement',
-  user: config.DB_USER || 'postgres',
-  password: config.DB_PASSWORD || 'admin',
-  max: 20,
-  idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 2000,
-});
-
-// Test database connection
-pool.on('connect', () => {
-  console.log('✅ Connected to PostgreSQL database');
-});
-
-pool.on('error', (err) => {
-  console.error('❌ Database connection error:', err);
-});
+// Create a simple pool-like interface for compatibility
+const pool = {
+  query: (text, params = []) => {
+    return new Promise((resolve, reject) => {
+      if (typeof text === 'string' && text.trim().toUpperCase().startsWith('SELECT')) {
+        db.all(text, params, (err, rows) => {
+          if (err) {
+            reject(err);
+          } else {
+            resolve({ rows });
+          }
+        });
+      } else {
+        db.run(text, params, function(err) {
+          if (err) {
+            reject(err);
+          } else {
+            resolve({ rows: [], rowCount: this.changes });
+          }
+        });
+      }
+    });
+  }
+};
 
 // Initialize database tables
 async function initializeDatabase() {
@@ -41,15 +43,15 @@ async function initializeDatabase() {
     // Create menu_items table if it doesn't exist
     const createTableQuery = `
       CREATE TABLE IF NOT EXISTS menu_items (
-        id SERIAL PRIMARY KEY,
-        name VARCHAR(255) NOT NULL,
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
         description TEXT NOT NULL,
-        price DECIMAL(10,2) NOT NULL CHECK (price > 0),
-        category VARCHAR(100) NOT NULL,
+        price REAL NOT NULL CHECK (price > 0),
+        category TEXT NOT NULL,
         image_url TEXT,
-        available BOOLEAN DEFAULT true,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        available INTEGER DEFAULT 1,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
       );
       
       -- Create index for better performance
@@ -63,7 +65,7 @@ async function initializeDatabase() {
 
 
     // Insert sample data if table is empty
-    const checkDataQuery = 'SELECT COUNT(*) FROM menu_items';
+    const checkDataQuery = 'SELECT COUNT(*) as count FROM menu_items';
     const result = await pool.query(checkDataQuery);
     
     if (parseInt(result.rows[0].count) === 0) {

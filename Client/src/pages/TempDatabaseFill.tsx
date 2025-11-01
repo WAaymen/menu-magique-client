@@ -54,7 +54,7 @@ const TempDatabaseFill = () => {
   ];
 
   // API Base URL
-  const API_BASE = 'http://localhost:3001/api';
+  const API_BASE = 'http://localhost:8000/api';
 
   // Handle image file selection
   const handleImageFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -98,7 +98,7 @@ const TempDatabaseFill = () => {
   const checkDatabaseConnection = async () => {
     try {
       setDbStatus('checking');
-      const response = await fetch(`${API_BASE}/health`);
+      const response = await fetch(`${API_BASE}/test`);
       if (response.ok) {
         setDbStatus('connected');
         toast({
@@ -117,7 +117,7 @@ const TempDatabaseFill = () => {
       setDbStatus('disconnected');
       toast({
         title: "❌ Erreur de connexion",
-        description: "Serveur backend non accessible. Vérifiez que le serveur Node.js est démarré.",
+        description: "Serveur Laravel non accessible. Vérifiez que le serveur Laravel est démarré.",
         variant: "destructive"
       });
     }
@@ -127,13 +127,13 @@ const TempDatabaseFill = () => {
   const loadMenuItems = async () => {
     try {
       setLoading(true);
-      const response = await fetch(`${API_BASE}/menu-items/all`);
+      const response = await fetch(`${API_BASE}/dishes`);
       if (response.ok) {
         const data = await response.json();
-        setMenuItems(data.data || []);
+        setMenuItems(data || []);
         toast({
           title: "📋 Menu chargé",
-          description: `${data.count} plats chargés depuis la base de données`,
+          description: `${data.length} plats chargés depuis la base de données`,
         });
       } else {
         throw new Error('Failed to load menu items');
@@ -168,7 +168,7 @@ const TempDatabaseFill = () => {
       
       if (isEditing && editingId) {
         // Update existing item
-        const response = await fetch(`${API_BASE}/menu-items/update/${editingId}`, {
+        const response = await fetch(`${API_BASE}/dishes/${editingId}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(currentItem),
@@ -188,7 +188,7 @@ const TempDatabaseFill = () => {
         }
       } else {
         // Add new item
-        const response = await fetch(`${API_BASE}/menu-items/add`, {
+        const response = await fetch(`${API_BASE}/dishes`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(currentItem),
@@ -241,7 +241,7 @@ const TempDatabaseFill = () => {
 
     try {
       setLoading(true);
-      const response = await fetch(`${API_BASE}/menu-items/delete/${id}`, {
+      const response = await fetch(`${API_BASE}/dishes/${id}`, {
         method: 'DELETE',
       });
 
@@ -269,7 +269,7 @@ const TempDatabaseFill = () => {
   // Toggle availability
   const handleToggleAvailability = async (id: number, currentStatus: boolean) => {
     try {
-      const response = await fetch(`${API_BASE}/menu-items/toggle/${id}`, {
+      const response = await fetch(`${API_BASE}/dishes/${id}`, {
         method: 'PATCH',
       });
 
@@ -337,7 +337,7 @@ const TempDatabaseFill = () => {
       // Delete all items one by one
       for (const item of menuItems) {
         if (item.id) {
-          await fetch(`${API_BASE}/menu-items/delete/${item.id}`, {
+          await fetch(`${API_BASE}/dishes/${item.id}`, {
             method: 'DELETE',
           });
         }
@@ -719,21 +719,27 @@ const TempDatabaseFill = () => {
                            </Button>
                            
                            {/* Image indicator */}
-                           {item.image_url && (
+                           {(item.image_url || (item as any).images) && (
                              <div className="flex items-center gap-1">
                                <span className="text-xs text-blue-600">📷</span>
                                <span className="text-xs text-gray-500">
-                                 {item.image_url.startsWith('data:') ? 'Fichier local' : 'URL'}
+                                 {item.image_url?.startsWith('data:') ? 'Fichier local' : 
+                                  (item as any).images ? 'Laravel Storage' : 'URL'}
                                </span>
                              </div>
                            )}
                          </div>
                          
                          {/* Image preview in card */}
-                         {item.image_url && (
+                         {(item.image_url || (item as any).images) && (
                            <div className="mt-3 pt-3 border-t border-gray-200">
                              <img
-                               src={item.image_url}
+                               src={
+                                 item.image_url || 
+                                 ((item as any).images && Array.isArray((item as any).images) && (item as any).images.length > 0 
+                                   ? `http://localhost:8000${(item as any).images[0]}` 
+                                   : '')
+                               }
                                alt={item.name}
                                className="w-full h-32 object-cover rounded border"
                                onError={(e) => {

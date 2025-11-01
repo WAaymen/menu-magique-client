@@ -9,11 +9,11 @@ export const dbConfig = {
 
 // API endpoints for database operations
 export const API_ENDPOINTS = {
-  menuItems: '/api/menu-items',
-  addMenuItem: '/api/menu-items/add',
-  updateMenuItem: '/api/menu-items/update',
-  deleteMenuItem: '/api/menu-items/delete',
-  getAllMenuItems: '/api/menu-items/all'
+  menuItems: '/api/dishes',
+  addMenuItem: '/api/dishes',
+  updateMenuItem: '/api/dishes',
+  deleteMenuItem: '/api/dishes',
+  getAllMenuItems: '/api/dishes'
 };
 
 // Database table structure for menu items
@@ -42,7 +42,7 @@ export interface MenuItemForm {
 
 // Database operations
 export class DatabaseService {
-  private static baseURL = 'http://localhost:3001'; // Backend server URL
+  private static baseURL = 'http://localhost:8000'; // Backend server URL
 
   // Add new menu item
   static async addMenuItem(item: MenuItemForm): Promise<MenuItemDB> {
@@ -114,8 +114,8 @@ export class DatabaseService {
       }
 
       const result = await response.json();
-      // Return the data array from the API response
-      return result.data || [];
+      // Laravel returns the data directly, not wrapped in a data property
+      return result || [];
     } catch (error) {
       console.error('Error fetching menu items:', error);
       throw error;
@@ -125,7 +125,7 @@ export class DatabaseService {
   // Test database connection
   static async testConnection(): Promise<boolean> {
     try {
-      const response = await fetch(`${this.baseURL}/api/health`);
+      const response = await fetch(`${this.baseURL}/api/test`);
       return response.ok;
     } catch (error) {
       console.error('Database connection test failed:', error);
